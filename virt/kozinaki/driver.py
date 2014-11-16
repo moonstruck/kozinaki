@@ -60,6 +60,7 @@ from libcloud.compute.types import Provider as provider_obj
 from netaddr import IPAddress, IPNetwork
 
 LOG = logging.getLogger(__name__)
+_LOG = "\n\n### {} ###\n\n"
 
 kozinaki_opts = [
     cfg.StrOpt('prefix',
@@ -289,6 +290,7 @@ class KozinakiDriver(driver.ComputeDriver):
         else:
             return self.conn(provider_name, provider_region).list_nodes()
 
+    @classmethod
     def _timeout_call(wait_period, timeout):
         """
         This decorator calls given method repeatedly
@@ -309,7 +311,6 @@ class KozinakiDriver(driver.ComputeDriver):
                 raise exc
             return _wrapped
         return _inner
-
 
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
@@ -539,7 +540,7 @@ class KozinakiDriver(driver.ComputeDriver):
                                            block_device_info=None):
         pass
 
-    def _do_provider_node(self, action, instance):
+    def _do_provider_node(self, action, instance, new_size=None):
         """
         Perform different actions with provider specific parameters where required
 
@@ -579,6 +580,26 @@ class KozinakiDriver(driver.ComputeDriver):
                 self._get_local_instance_conn(instance).reboot_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
             else:
                 self._get_local_instance_conn(instance).reboot_node(provider_instance)
+
+        elif action == 'resize':
+            if not new_size:
+                return
+
+            conn = self._get_local_instance_conn(instance)
+            if provider_name == 'AZURE':
+                provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
+                self._resize_provider_instance(conn, provider_instance, new_size, ex_cloud_service_name=provider_cloud_service_name)
+            else:
+                self._resize_provider_instance(conn, provider_instance, new_size)
+
+    @_timeout_call(wait_period=3, timeout=600)
+    def _resize_provider_instance(self, local_instance_conn, provider_instance, new_size, **kwargs):
+        """
+        Performs ex_change_node_size on provider_instance handling
+        any exceptions and repeating call until timeout expires.
+        This prevents from calling resize on still running instances.
+        """
+        return local_instance_conn.ex_change_node_size(provider_instance, new_size, **kwargs)
 
     ## TODO: after stop, powerstate is NOSTATE, need to address that
     def power_off(self, instance):
@@ -874,21 +895,13 @@ class KozinakiDriver(driver.ComputeDriver):
 
             self._do_provider_node('stop', instance)
 
-            self._resize_provider_instance(provider_instance, new_provider_size)
+            self._do_provider_node('resize', provider_instance,
+                                   new_size=new_provider_size)
 
         if power_on:
             self.power_on(context, instance, network_info, block_device_info)
 
         return
-
-    @_timeout_call(wait_period=3, timeout=600)
-    def _resize_provider_instance(self, node, new_size):
-
-        # TODO: move to _do_provider_action
-        # self._do_provider_node('resize', new_size)
-
-        LOG.debug(_LOG.format("_resize"))
-        return self.driver.ex_change_node_size(node, new_size)
 
     def confirm_migration(self, migration, instance, network_info):
         """Confirms a resize, destroying the source VM.
