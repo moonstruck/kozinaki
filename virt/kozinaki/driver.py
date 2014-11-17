@@ -21,6 +21,7 @@ import sys
 import eventlet
 import time
 import pprint
+from virt.kozinaki.utils import timeout_call
 
 from nova import conductor
 from nova import db
@@ -45,6 +46,7 @@ from nova.openstack.common import log as logging
 from nova.openstack.common.gettextutils import _
 
 from nova.virt import driver
+
 from nova.virt import virtapi
 
 from nova.network.manager import NetworkManager
@@ -290,27 +292,27 @@ class KozinakiDriver(driver.ComputeDriver):
         else:
             return self.conn(provider_name, provider_region).list_nodes()
 
-    @classmethod
-    def _timeout_call(wait_period, timeout):
-        """
-        This decorator calls given method repeatedly
-        until it throws exception. Loop ends when method
-        returns.
-        """
-        def _inner(f):
-            @wraps(f)
-            def _wrapped(*args, **kwargs):
-                start = time.time()
-                end = start + timeout
-                exc = None
-                while(time.time() < end):
-                    try:
-                        return f(*args, **kwargs)
-                    except Exception as exc:
-                        time.sleep(wait_period)
-                raise exc
-            return _wrapped
-        return _inner
+    # @classmethod
+    # def _timeout_call(wait_period, timeout):
+    #     """
+    #     This decorator calls given method repeatedly
+    #     until it throws exception. Loop ends when method
+    #     returns.
+    #     """
+    #     def _inner(f):
+    #         @wraps(f)
+    #         def _wrapped(*args, **kwargs):
+    #             start = time.time()
+    #             end = start + timeout
+    #             exc = None
+    #             while(time.time() < end):
+    #                 try:
+    #                     return f(*args, **kwargs)
+    #                 except Exception as exc:
+    #                     time.sleep(wait_period)
+    #             raise exc
+    #         return _wrapped
+    #     return _inner
 
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
@@ -464,16 +466,7 @@ class KozinakiDriver(driver.ComputeDriver):
 
     def live_snapshot(self, context, instance, name, update_task_state):
         """Snapshot an instance without downtime."""
-        pass
 
-    def snapshot(self, context, instance, name, update_task_state):
-        """Snapshots the specified instance.
-
-        :param context: security context
-        :param instance: nova.objects.instance.Instance
-        :param image_id: Reference to a pre-created image that will
-                         hold the snapshot.
-        """
         pass
 
     def get_host_ip_addr(self):
@@ -540,7 +533,7 @@ class KozinakiDriver(driver.ComputeDriver):
                                            block_device_info=None):
         pass
 
-    def _do_provider_node(self, action, instance, new_size=None):
+    def _do_provider_instance_action(self, action, instance, new_size=None):
         """
         Perform different actions with provider specific parameters where required
 
@@ -549,87 +542,111 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         provider_instance = self._get_provider_instance(instance)
+        provider_conn = self._get_local_instance_conn(instance)
 
         ## TODO: replace with try/catch block inside the get function, False=True
         if provider_instance is None:
             return
 
         provider_name = self._get_local_instance_prop(instance, 'provider_name')
+        if provider_name == 'AZURE':
+            provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
 
         if action == 'start':
             ## TODO: address the case that after StoppedUnallocated instance stops it doesn't have an IP address so after start
             ## TODO: need to add the address to the instance
             if provider_name == 'AZURE':
-                provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
-                self._get_local_instance_conn(instance).ex_start_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                provider_conn.ex_start_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
             else:
-                self._get_local_instance_conn(instance).ex_start_node(provider_instance)
+                provider_conn.ex_start_node(provider_instance)
 
         elif action == 'stop':
             ## TODO: after the instance is stopped the IP address needs to be deallocated from the local instance
             ## TODO: also the network needs be deleted
             if provider_name == 'AZURE':
-                provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
-                self._get_local_instance_conn(instance).ex_stop_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                provider_conn.ex_stop_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
             else:
-                self._get_local_instance_conn(instance).ex_stop_node(provider_instance)
+                provider_conn.ex_stop_node(provider_instance)
 
         elif action == 'reboot':
             if provider_name == 'AZURE':
-                provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
-                self._get_local_instance_conn(instance).reboot_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                provider_conn.reboot_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
             else:
-                self._get_local_instance_conn(instance).reboot_node(provider_instance)
+                provider_conn.reboot_node(provider_instance)
 
         elif action == 'resize':
             if not new_size:
                 return
 
-            conn = self._get_local_instance_conn(instance)
             if provider_name == 'AZURE':
-                provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
-                self._resize_provider_instance(conn, provider_instance, new_size, ex_cloud_service_name=provider_cloud_service_name)
+                provider_conn.ex_change_node_size(provider_instance, provider_cloud_service_name, new_size)
             else:
-                self._resize_provider_instance(conn, provider_instance, new_size)
+                provider_conn.ex_change_node_size(provider_instance, new_size)
 
-    @_timeout_call(wait_period=3, timeout=600)
-    def _resize_provider_instance(self, local_instance_conn, provider_instance, new_size, **kwargs):
-        """
-        Performs ex_change_node_size on provider_instance handling
-        any exceptions and repeating call until timeout expires.
-        This prevents from calling resize on still running instances.
-        """
-        return local_instance_conn.ex_change_node_size(provider_instance, new_size, **kwargs)
+        elif action == 'create-image':
+            if provider_name == 'AZURE':
+                provider_conn.ex_create_image_from_node(provider_instance, provider_cloud_service_name)
+            else:
+                provider_conn.ex_create_image_from_node(provider_instance, new_size)
+
+    # @timeout_call(wait_period=3, timeout=600)
+    # def _resize_provider_instance(self, local_instance_conn, provider_instance, new_size, **kwargs):
+    #     """
+    #     Performs ex_change_node_size on provider_instance handling
+    #     any exceptions and repeating call until timeout expires.
+    #     This prevents from calling resize on still running instances.
+    #     """
+    #     return local_instance_conn.ex_change_node_size(provider_instance, new_size, **kwargs)
 
     ## TODO: after stop, powerstate is NOSTATE, need to address that
     def power_off(self, instance):
         """
-        Looks up provider instance corresponding to the local instance,
-        looks up the provider driver corresponding to the local instance,
-        issues a provider specific commend to stop the provider instance
-
+        Issues a provider specific commend to stop the provider instance
         :param instance: Local instance
         """
 
         ##TODO: check if node already stopped and do not do anything with it, just change the power_state
-        self._do_provider_node('stop', instance)
+        self._do_provider_instance_action('stop', instance)
 
     def power_on(self, context, instance, network_info, block_device_info):
         """
-        Looks up provider instance corresponding to the local instance,
-        looks up the provider driver corresponding to the local instance,
-        issues a provider specific commend to start provider instance
-
+        Issues a provider specific commend to start provider instance
         :param instance: Local instance
         """
 
-        self._do_provider_node('start', instance)
+        self._do_provider_instance_action('start', instance)
 
     def reboot(self, context, instance, network_info, reboot_type,
                block_device_info=None, bad_volumes_callback=None):
         """Reboot a virtual machine, given an instance reference."""
 
-        self._do_provider_node('reboot', instance)
+        self._do_provider_instance_action('reboot', instance)
+
+    def destroy(self, context, instance, network_info, block_device_info=None,
+                destroy_disks=True):
+        """
+        Issues a provider specific commend to destroy the provider instance
+        :param instance: Local instance
+        """
+
+        provider_instance = self._get_provider_instance(instance)
+        if not provider_instance:
+            return
+        self._get_local_instance_conn(instance).destroy_node(provider_instance)
+
+    def snapshot(self, context, instance, name, update_task_state):
+        """
+        Issues a provider specific commend to snapshot the provider instance
+        :param instance: Local instance
+        """
+
+        ##TODO: check if node already stopped and do not do anything with it, just change the power_state
+        self._do_provider_instance_action('create-image', instance)
+
+    # from nova.virt.hyperv import rdpconsoleops
+    # def get_rdp_console(self, context, instance):
+    #    self._rdpconsoleops = rdpconsoleops.RDPConsoleOps()
+    #    return self._rdpconsoleops.get_rdp_console(instance)
 
     def soft_delete(self, instance):
         pass
@@ -648,21 +665,6 @@ class KozinakiDriver(driver.ComputeDriver):
 
     def resume(self, context, instance, network_info, block_device_info=None):
         pass
-
-    def destroy(self, context, instance, network_info, block_device_info=None,
-                destroy_disks=True):
-        """
-        Looks up provider instance corresponding to the local instance,
-        looks up the provider driver corresponding to the local instance,
-        issues a provider specific commend to stop the provider instance
-
-        :param instance: Local instance
-        """
-
-        provider_instance = self._get_provider_instance(instance)
-        if not provider_instance:
-            return
-        self._get_local_instance_conn(instance).destroy_node(provider_instance)
 
     def attach_volume(self, context, connection_info, instance, mountpoint,
                       encryption=None):
@@ -789,7 +791,8 @@ class KozinakiDriver(driver.ComputeDriver):
     def refresh_provider_fw_rules(self):
         pass
 
-    ## TODO: since we have infinite resources we need to set them as either maximum available by data type or figure out what infinity means for them
+    ## TODO: since we have infinite resources we need to set them as either maximum
+    ##  available by data type or figure out what infinity means for them
     def get_available_resource(self, nodename):
         """Retrieve resource information.
 
@@ -883,20 +886,14 @@ class KozinakiDriver(driver.ComputeDriver):
         if resize_instance:
             flavor = flavors.extract_flavor(instance)
 
-            provider_name = self._get_local_instance_prop(image_meta, 'provider_name')
-            provider_region = self._get_local_instance_prop(image_meta, 'provider_region')
+            provider_name = self._get_local_instance_prop(instance, 'provider_name')
+            provider_region = self._get_local_instance_prop(instance, 'provider_region')
 
             sizes = self.conn(provider_name, provider_region).list_sizes()
             new_provider_size = [s for s in sizes if s.id == flavor['name']][0]
 
-            provider_instance = self._get_provider_instance(instance)
-            if not provider_instance:
-                return
-
-            self._do_provider_node('stop', instance)
-
-            self._do_provider_node('resize', provider_instance,
-                                   new_size=new_provider_size)
+            self._do_provider_instance_action('stop', instance)
+            self._do_provider_instance_action('resize', instance, new_size=new_provider_size)
 
         if power_on:
             self.power_on(context, instance, network_info, block_device_info)
@@ -910,6 +907,12 @@ class KozinakiDriver(driver.ComputeDriver):
         """
         return
 
+    # TODO:
+    #
+    # File "/usr/lib/python2.7/dist-packages/nova/compute/manager.py", line 894, in _init_instance
+    #   instance, net_info, block_dev_info, power_on)
+    # TypeError: finish_revert_migration() takes at most 5 arguments (6 given
+    #
     def finish_revert_migration(self, instance, network_info,
                                 block_device_info=None, power_on=True):
         """Finish reverting a resize.
