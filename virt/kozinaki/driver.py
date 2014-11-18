@@ -292,27 +292,27 @@ class KozinakiDriver(driver.ComputeDriver):
         else:
             return self.conn(provider_name, provider_region).list_nodes()
 
-    # @classmethod
-    # def _timeout_call(wait_period, timeout):
-    #     """
-    #     This decorator calls given method repeatedly
-    #     until it throws exception. Loop ends when method
-    #     returns.
-    #     """
-    #     def _inner(f):
-    #         @wraps(f)
-    #         def _wrapped(*args, **kwargs):
-    #             start = time.time()
-    #             end = start + timeout
-    #             exc = None
-    #             while(time.time() < end):
-    #                 try:
-    #                     return f(*args, **kwargs)
-    #                 except Exception as exc:
-    #                     time.sleep(wait_period)
-    #             raise exc
-    #         return _wrapped
-    #     return _inner
+#     @classmethod
+#     def _timeout_call(cls, wait_period, timeout):
+#         """
+#         This decorator calls given method repeatedly
+#         until it throws exception. Loop ends when method
+#         returns.
+#         """
+#         def _inner(cls, f):
+#             @wraps(f)
+#             def _wrapped(*args, **kwargs):
+#                 start = time.time()
+#                 end = start + timeout
+#                 exc = None
+#                 while(time.time() < end):
+#                     try:
+#                         return f(*args, **kwargs)
+#                     except Exception as exc:
+#                         time.sleep(wait_period)
+#                 raise exc
+#             return _wrapped
+#         return _inner
 
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
@@ -533,7 +533,7 @@ class KozinakiDriver(driver.ComputeDriver):
                                            block_device_info=None):
         pass
 
-    def _do_provider_instance_action(self, action, instance, new_size=None):
+    def _do_provider_instance_action(self, action, instance, new_size=None, image_name=None):
         """
         Perform different actions with provider specific parameters where required
 
@@ -581,22 +581,31 @@ class KozinakiDriver(driver.ComputeDriver):
             if provider_name == 'AZURE':
                 provider_conn.ex_change_node_size(provider_instance, provider_cloud_service_name, new_size)
             else:
-                provider_conn.ex_change_node_size(provider_instance, new_size)
+                self._resize_provider_instance(provider_conn, provider_instance, new_size)
 
         elif action == 'create-image':
+            if not image_name:
+                return
+
             if provider_name == 'AZURE':
                 provider_conn.ex_create_image_from_node(provider_instance, provider_cloud_service_name)
             else:
-                provider_conn.ex_create_image_from_node(provider_instance, new_size)
+                # EC2 image mapping - taken from libcloud/compute/drivers/ec2.py
+                mapping = [{'VirtualName': None,
+                            'Ebs': {'VolumeSize': 10,
+                                    'VolumeType': 'standard',
+                                    'DeleteOnTermination': 'true'},
+                                    'DeviceName': '/dev/sda1'}]
+                provider_conn.ex_create_image_from_node(provider_instance, image_name, mapping)
 
-    # @timeout_call(wait_period=3, timeout=600)
-    # def _resize_provider_instance(self, local_instance_conn, provider_instance, new_size, **kwargs):
-    #     """
-    #     Performs ex_change_node_size on provider_instance handling
-    #     any exceptions and repeating call until timeout expires.
-    #     This prevents from calling resize on still running instances.
-    #     """
-    #     return local_instance_conn.ex_change_node_size(provider_instance, new_size, **kwargs)
+    @timeout_call(wait_period=3, timeout=600)
+    def _resize_provider_instance(self, local_instance_conn, provider_instance, new_size, **kwargs):
+        """
+        Performs ex_change_node_size on provider_instance handling
+        any exceptions and repeating call until timeout expires.
+        This prevents from calling resize on still running instances.
+        """
+        return local_instance_conn.ex_change_node_size(provider_instance, new_size, **kwargs)
 
     ## TODO: after stop, powerstate is NOSTATE, need to address that
     def power_off(self, instance):
@@ -641,7 +650,7 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         ##TODO: check if node already stopped and do not do anything with it, just change the power_state
-        self._do_provider_instance_action('create-image', instance)
+        self._do_provider_instance_action('create-image', instance, image_name=name)
 
     # from nova.virt.hyperv import rdpconsoleops
     # def get_rdp_console(self, context, instance):
