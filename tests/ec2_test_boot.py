@@ -23,7 +23,7 @@ from base import KozinakiTestBase
 
 class KozinakiEC2TestCase(KozinakiTestBase):
 
-    def test_resize_ok(self):
+    def test_boot_ok(self):
 
         instance, image, metadata = self.create_test_objects(
             name='test',

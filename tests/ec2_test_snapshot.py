@@ -33,6 +33,9 @@ class KozinakiEC2TestCase(KozinakiTestBase):
             provider_region='US_WEST')
 
         self.spawn(instance, image)
+ 
+        # wait until spawn finish
+        self.get_node(instance, state=NodeState.RUNNING)
 
         self.log.info('Snapshot execution')
         self.driver.snapshot(
@@ -42,7 +45,7 @@ class KozinakiEC2TestCase(KozinakiTestBase):
             update_task_state=None)
 
         node = self.get_node(instance)
-        self.assertEqual(node.state, NodeState.PENDING)
+        self.assertEqual(node.state, NodeState.RUNNING)
 
 if __name__ == '__main__':
     unittest.main()

@@ -46,7 +46,7 @@ class KozinakiTestBase(unittest.TestCase):
         # nova environment setup
         objects.register_all()
         rpc.set_defaults(control_exchange='nova')
-        cfg.CONF(['--config-file=/root/Envs/conf/nova-compute.conf'],
+        cfg.CONF(['--config-file=/root/envs/conf/nova-compute.conf'],
                  project='nova',
                  version='0.1')
         rpc.init(cfg.CONF)

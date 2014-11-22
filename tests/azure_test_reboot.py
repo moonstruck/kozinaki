@@ -27,10 +27,10 @@ class KozinakiAzureTestCase(KozinakiTestBase):
 
         instance, image, metadata = self.create_test_objects(
             name='test',
-            size_id='t1.micro',
-            image_id='ami-696e652c',
-            provider_name='EC2',
-            provider_region='US_WEST')
+            size_id='ExtraSmall',
+            image_id='149f346a-1e9a-4e53-93d9-2a47a5b0b44d',
+            provider_name='AZURE',
+            provider_region='')
 
         self.spawn(instance, image)
 
