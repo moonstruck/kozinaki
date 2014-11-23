@@ -269,13 +269,13 @@ class AzureNodeDriver(NodeDriver):
             raise ValueError("ex_cloud_service_name is required.")
 
         response = self._perform_get(
-            self._get_hosted_service_path(ex_cloud_service_name) +
-            '?embed-detail=True',
-            None)
+                self._get_hosted_service_path(ex_cloud_service_name) +
+                '?embed-detail=True',
+                None)
+
         if response.status != 200 :
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
-                                (response.error, response.body, response.status)
-                                , driver=self)
+            raise LibcloudError('list_nodes: Message: %s, Body: %s, Status code: %d' %
+                                (response.error, response.body, response.status), driver=self)
 
         data =  self._parse_response(response, HostedService)
 
@@ -325,14 +325,17 @@ class AzureNodeDriver(NodeDriver):
                 + _str(node.id) + '?comp=reboot', '')
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('reboot_node: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
-            if self._parse_response_for_async_op(response):
-                return True
-            else:
-                return False
+            ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+            ## if self._parse_response_for_async_op(response):
+            ##    return True
+            ## else:
+            ##    return False
+            return True
+
         except Exception, e:
             return False
 
@@ -398,7 +401,6 @@ class AzureNodeDriver(NodeDriver):
 
         """
 
-
         password = None
         auth = self._get_and_check_auth(kwargs["auth"])
         password = auth.password
@@ -458,10 +460,13 @@ class AzureNodeDriver(NodeDriver):
                     service_name=ex_cloud_service_name,
                     deployment_slot=ex_deployment_slot)
 
+                ports = []
+
                 for instances in endpoints.role_instance_list:
-                    ports = []
-                    for ep in instances.instance_endpoints:
-                        ports += [ep.public_port]
+
+                    if instances.instance_status != 'StoppedDeallocated':
+                        for ep in instances.instance_endpoints:
+                            ports += [ep.public_port]
 
                     while port in ports:
                         port = random.randint(41952,65535)
@@ -561,10 +566,12 @@ class AzureNodeDriver(NodeDriver):
                     None))
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('create_node: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body, response.status), driver=self)
 
-            self._ex_complete_async_azure_operation(response)
+            ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+            ## self._ex_complete_async_azure_operation(response, "ex_stop_node")
+
         else:
             _deployment_name = self._get_deployment(
                 service_name=ex_cloud_service_name,
@@ -607,11 +614,12 @@ class AzureNodeDriver(NodeDriver):
                     size)) # role_size)
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('create_node: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
-            self._ex_complete_async_azure_operation(response)
+            ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+            ## self._ex_complete_async_azure_operation(response)
 
         return Node(
             id=name,
@@ -663,7 +671,7 @@ class AzureNodeDriver(NodeDriver):
                                        _deployment_name, node.id)
             path += '?comp=media' # forces deletion of attached disks
 
-            data = self._perform_delete(path)
+            data = self._perform_delete(path, True)
 
             return True
         else:
@@ -673,7 +681,7 @@ class AzureNodeDriver(NodeDriver):
 
             path += '?comp=media'
 
-            data = self._perform_delete(path)
+            data = self._perform_delete(path, True)
 
             return True
 
@@ -709,16 +717,27 @@ class AzureNodeDriver(NodeDriver):
                 AzureXmlSerializer.shutdown_role_operation_to_xml())
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('ex_stop_node: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
-            if self._parse_response_for_async_op(response):
-                return True
-            else:
-                return False
+            ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+            ## self._ex_complete_async_azure_operation(response, "ex_stop_node")
+
+            # provider_instance_stats = self._get_instance_status(ex_cloud_service_name, _deployment_name, node.id)
+
         except Exception, e:
             return False
+
+    def _get_instance_status(self, ex_cloud_service_name, ex_deployment_slot, name):
+
+            provider_instances = self._get_deployment(
+                        service_name=ex_cloud_service_name,
+                        deployment_slot=ex_deployment_slot)
+
+            for instance in provider_instances.role_instance_list:
+                if instance.instance_name == name:
+                    return instance.instance_status
 
     def ex_start_node(self, node, ex_cloud_service_name, ex_deployment_slot=None):
 
@@ -753,17 +772,17 @@ class AzureNodeDriver(NodeDriver):
                 AzureXmlSerializer.start_role_operation_to_xml())
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('ex_start_node: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
-            if self._parse_response_for_async_op(response):
-                return True
-            else:
-                return False
+            ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+            ## self._ex_complete_async_azure_operation(response, "ex_start_node")
+
+            # provider_instance_status = self._get_instance_status(ex_cloud_service_name, _deployment_name, node.id)
+
         except Exception, e:
             return False
-
 
     def ex_change_node_size(self, node, ex_cloud_service_name, new_size):
         """
@@ -800,6 +819,11 @@ class AzureNodeDriver(NodeDriver):
             service_name=ex_cloud_service_name,
             deployment_slot=ex_deployment_slot).name
 
+        # if self._parse_response_for_async_op(response):
+        #    return True
+        # else:
+        #    return False
+
         response = self._perform_put(
             self._get_role_path(ex_cloud_service_name, _deployment_name, name),
             AzureXmlSerializer.update_role_to_xml(
@@ -817,9 +841,11 @@ class AzureNodeDriver(NodeDriver):
         )
 
         if response.status != 202:
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+            raise LibcloudError('ex_change_node_size: Message: %s, Body: %s, Status code: %d' %
                                 (response.error, response.body,
                                  response.status), driver=self)
+        ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+        ## self._ex_complete_async_azure_operation(response, "ex_stop_node")
 
     def create_cloud_service(self, ex_cloud_service_name=None, location=None,
                              description=None, extended_properties=None):
@@ -854,7 +880,7 @@ class AzureNodeDriver(NodeDriver):
                 description, location, None, extended_properties))
 
         if response.status != 201:
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d'
+            raise LibcloudError('create_cloud_service: Message: %s, Body: %s, Status code: %d'
                                 % (response.error, response.body,
                                    response.status), driver=self)
 
@@ -878,7 +904,7 @@ class AzureNodeDriver(NodeDriver):
             self._get_hosted_service_path(ex_cloud_service_name))
 
         if response.status != 200:
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+            raise LibcloudError('destroy_cloud_service: Message: %s, Body: %s, Status code: %d' %
                                 (response.error, response.body, response.status)
                                 , driver=self)
 
@@ -1010,7 +1036,7 @@ class AzureNodeDriver(NodeDriver):
         """
         Convert the AZURE_COMPUTE_INSTANCE_TYPES into NodeSize
         """
-        
+
         return NodeSize(
             id=data["id"],
             name=data["name"],
@@ -1041,7 +1067,7 @@ class AzureNodeDriver(NodeDriver):
 
     def _to_volume(self, volume, node):
 
-        if node: 
+        if node:
             if hasattr(volume.attached_to, 'role_name'):
                 if volume.attached_to.role_name == node.id:
                     extra = {}
@@ -1094,7 +1120,7 @@ class AzureNodeDriver(NodeDriver):
                 _service_name, _deployment_slot), None)
 
         if response.status != 200:
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+            raise LibcloudError('_get_deployment: Message: %s, Body: %s, Status code: %d' %
                                 (response.error, response.body, response.status)
                                 , driver=self)
 
@@ -1130,7 +1156,7 @@ class AzureNodeDriver(NodeDriver):
             '/operations/isavailable/' +
             _str(service_name) + '',
             AvailabilityResponse)
-                
+
         return _check_availability.result
 
     def _create_storage_account(self, **kwargs):
@@ -1147,7 +1173,7 @@ class AzureNodeDriver(NodeDriver):
                     None)) # extended_properties
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('create_storage_account: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
@@ -1164,21 +1190,22 @@ class AzureNodeDriver(NodeDriver):
                     None)) # extended_properties
 
             if response.status != 202:
-                raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+                raise LibcloudError('create_storage_account: Message: %s, Body: %s, Status code: %d' %
                                     (response.error, response.body,
                                      response.status), driver=self)
 
 
         # We need to wait for this to be created before we can 
         # create the storage container and the instance.
-        self._ex_complete_async_azure_operation(response,
-                                                "create_storage_account")
+
+        ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+        ## self._ex_complete_async_azure_operation(response, "create_storage_account")
 
         return
 
     def _get_operation_status(self, request_id):
         return self._perform_get(
-            '/' + self.subscription_id + '/operations/' + _str(request_id),
+            '/' + self.subscription_id + '/operations/' + request_id,
             Operation)
 
     def _perform_get(self, path, response_type):
@@ -1235,22 +1262,37 @@ class AzureNodeDriver(NodeDriver):
         response = self._perform_request(request)
 
         if response.status != 202:
-            raise LibcloudError('Message: %s, Body: %s, Status code: %d' %
+            raise LibcloudError('_perform_delete: Message: %s, Body: %s, Status code: %d' %
                                 (response.error, response.body, response.status)
                                 , driver=self)
 
-        if async:
-            return self._parse_response_for_async_op(response)
+        ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
+        ## if async:
+        ##    return self._parse_response_for_async_op(response)
 
         return None
 
     def _perform_request(self, request):
 
         try:
-            return self.connection.request(
+            # return self.connection.request(
+            #     action="https://%s%s" % (request.host, request.path),
+            #     data=request.body, headers=request.headers,
+            #     method=request.method)
+
+            response = self.connection.request(
                 action="https://%s%s" % (request.host, request.path),
                 data=request.body, headers=request.headers,
                 method=request.method)
+
+            ## Just like the fix in the Azure Python SDK: http://goo.gl/3e0iEh
+            if hasattr(response, 'status') and response.status != 307:
+                return response
+            else:
+                response = self._perform_request(request)
+
+            return response
+
         except Exception, e:
             print e.message
 
@@ -1607,18 +1649,22 @@ class AzureNodeDriver(NodeDriver):
     def _get_storage_service_path(self, service_name=None):
         return self._get_path('services/storageservices', service_name)
 
+    ## TODO: figure out how the async operations work, since they clearly don't server the intended purpose
     def _ex_complete_async_azure_operation(self, response=None,
                                            operation_type='create_node'):
 
         request_id = self._parse_response_for_async_op(response)
+        # TODO: inside this function there's a blow up that happens, maybe because there's
+        #       a timeout for the request_id
         operation_status = self._get_operation_status(request_id.request_id)
 
-        timeout = 60 * 5
+        timeout = 60 * 20
         waittime = 0
         interval = 5
 
         while operation_status.status == "InProgress" and waittime < timeout:
-            operation_status = self._get_operation_status(request_id)
+            operation_status = self._get_operation_status(request_id.request_id)
+            print "Operation status: " + operation_status + ", wait time: " + waittime
             if operation_status.status == "Succeeded":
                 break
 
@@ -1629,17 +1675,6 @@ class AzureNodeDriver(NodeDriver):
             raise LibcloudError(
                 'Message: Async request for operation %s has failed'%
                 operation_type, driver=self)
-
-    #def get_connection(self):
-    #    certificate_path = "/Users/baldwin/.azure/managementCertificate.pem"
-    #    port = HTTPS_PORT
-
-    #    connection = HTTPSConnection(
-    #        azure_service_management_host,
-    #        int(port),
-    #        cert_file=certificate_path)
-
-    #    return connection
 
 """XML Serializer
 
