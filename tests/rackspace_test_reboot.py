@@ -13,7 +13,7 @@
 #    under the License.
 
 """
-Snapshot test for Kozinaki EC2 provider
+Reboot test for Kozinaki Rackspace provider
 """
 
 import unittest
@@ -21,30 +21,30 @@ from libcloud.compute.types import NodeState
 from base import KozinakiTestBase
 
 
-class KozinakiEC2TestCase(KozinakiTestBase):
+class KozinakiRackspaceTestCase(KozinakiTestBase):
 
-    def test_snapshot_ok(self):
+    def test_reboot_ok(self):
 
         instance, image, metadata = self.create_test_objects(
             name='test',
-            size_id='t1.micro',
+            size_id='m1.tiny',
             image_id='ami-696e652c',
-            provider_name='EC2',
-            provider_region='US_WEST')
+            provider_name='RACKSPACE',
+            provider_region='')
 
         self.spawn(instance, image)
 
-        # wait until spawn finish
         self.get_node(instance, state=NodeState.RUNNING)
 
-        self.log.info('Snapshot execution')
-        self.driver.snapshot(
+        self.log.info('Reboot execution')
+        self.driver.reboot(
             context=None,
             instance=instance,
-            name='test_snapshot',
-            update_task_state=None)
+            network_info=None,
+            reboot_type=None,
+            block_device_info=None)
 
-        node = self.get_node(instance)
+        node = self.get_node(instance, state=NodeState.RUNNING)
         self.assertEqual(node.state, NodeState.RUNNING)
 
 if __name__ == '__main__':

@@ -35,7 +35,7 @@ class NodeSize(object):
 
 
 class KozinakiTestBase(unittest.TestCase):
-    """ 
+    """
     Base class for Kozinaki Cloud Driver testing.
     """
 
