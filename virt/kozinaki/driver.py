@@ -198,7 +198,7 @@ class KozinakiDriver(driver.ComputeDriver):
         """
         return self._prefix + "-" + uuid.split('-')[4]
 
-    def _get_local_image_prop(self, metadata, key):
+    def _get_local_image_meta(self, metadata, key):
 
         """
         :param metadata: image metadata
@@ -215,7 +215,7 @@ class KozinakiDriver(driver.ComputeDriver):
                 return None
         return None
 
-    def _get_local_instance_prop(self, instance, key):
+    def _get_local_instance_meta(self, instance, key):
 
         """
         :param metadata: local instance
@@ -232,6 +232,16 @@ class KozinakiDriver(driver.ComputeDriver):
                 return None
         else:
             return None
+
+    def _set_local_instance_meta(self, local_instance, key, value):
+
+        metadata = {}
+        metadata[key] = value
+
+        admin_context = ctxt2.get_admin_context()
+
+        compute_api = compute.API()
+        compute_api.update_instance_metadata(admin_context, local_instance, metadata)
 
     def _update_local_instance_meta(self, context, local_instance, provider_name, provider_region, provider_instance_name):
 
@@ -261,28 +271,46 @@ class KozinakiDriver(driver.ComputeDriver):
         :return: libcloud provider driver corresponding to the local instance'
         """
 
-        provider_name = self._get_local_instance_prop(instance, 'provider_name')
-        provider_region = self._get_local_instance_prop(instance, 'provider_region')
+        provider_name = self._get_local_instance_meta(instance, 'provider_name')
+        provider_region = self._get_local_instance_meta(instance, 'provider_region')
 
         return self.conn(provider_name, provider_region)
 
-    def _get_provider_instance(self, instance):
+    def _get_provider_instance(self, instance, provider_name=None, provider_region=None):
         """
         :param instance: local instance
         :return: provider instance that corresponds to the local instance
         """
 
-        provider_instance_name = self._get_local_instance_prop(instance, 'provider_instance_name')
-        provider_name = self._get_local_instance_prop(instance, 'provider_name')
-        provider_region = self._get_local_instance_prop(instance, 'provider_region')
+        if provider_name is None:
+            provider_name = self._get_local_instance_meta(instance, 'provider_name')
+            if provider_name is None:
+                LOG.debug('###### ERROR: _get_provider_instance: no provider_name meta and none passed')
+                return
+
+        if provider_region is None:
+            provider_region = self._get_local_instance_meta(instance, 'provider_region')
+            if provider_region is None:
+                LOG.debug('###### ERROR: _get_provider_instance: no provider_region meta and none passed')
+
+        provider_instance_name = self._get_local_instance_meta(instance, 'provider_instance_name')
+        if provider_instance_name is None:
+            provider_instance_name = self._create_instance_name(instance['uuid'])
+
+        provider_instances = self._list_provider_instances(provider_name, provider_region)
+
+        if provider_instances is None:
+            LOG.debug('###### ERROR: _get_provider_instance: unable to get a list of provider instances')
+            return
 
         try:
-            for provider_instance_list_item in self._list_provider_instances(provider_name, provider_region):
-                if provider_instance_list_item.state != NodeState.TERMINATED and provider_instance_list_item.name == provider_instance_name:
-                    return provider_instance_list_item
-                ## TODO: raise no instance error
+            for provider_instance in provider_instances:
+                if provider_instance.state != NodeState.TERMINATED and provider_instance.name == provider_instance_name:
+                    return provider_instance
+            LOG.debug('###### ERROR: _get_provider_instance: unable to find a corresponding provider instance')
             return None
         except:
+            LOG.debug('###### ERROR: _get_provider_instance: exception ocured')
             return None
 
     def _list_provider_instances(self, provider_name, provider_region):
@@ -341,9 +369,9 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         """ Extractin provider info from meta """
-        provider_name = self._get_local_image_prop(image_meta, 'provider_name')
-        provider_region = self._get_local_image_prop(image_meta, 'provider_region')
-        provider_image = self._get_local_image_prop(image_meta, 'provider_image')
+        provider_name = self._get_local_image_meta(image_meta, 'provider_name')
+        provider_region = self._get_local_image_meta(image_meta, 'provider_region')
+        provider_image = self._get_local_image_meta(image_meta, 'provider_image')
 
         name = self._create_instance_name(instance['uuid'])
 
@@ -358,15 +386,24 @@ class KozinakiDriver(driver.ComputeDriver):
         try:
             if provider_name == 'AZURE':
                 # TODO: add handling of ex_admin_user_id
+                LOG.debug('INFO: spawn: running create node')
                 provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size,
                                                                                           auth=NodeAuthPassword(self._providers[provider_name]['default_password']),
                                                                                           ex_cloud_service_name=self._providers[provider_name]['cloud_service_name'],
                                                                                           ex_storage_service_name=self._providers[provider_name]['storage_service_name'])
+
+                LOG.debug('INFO: spawn: create node completed, waiting on the node creation')
+
+                self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+
+                LOG.debug('INFO: spawn: state attained')
+
             else:
                 if instance.get('key_data'):
                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size, ex_keyname=instance.get('key_data'))
                 else:
                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size)
+
         except:
             ## TODO: get rid of the debug prints
             print sys.exc_info()
@@ -386,6 +423,9 @@ class KozinakiDriver(driver.ComputeDriver):
         provider_instance_ip = self._get_provider_instance_ip(context, local_instance, create_node_provider_instance, provider_name, provider_region)
         self._bind_ip_to_instance(context, local_instance, provider_instance_ip)
         self._update_local_instance_meta(context, local_instance, provider_name, provider_region, create_node_provider_instance.name)
+
+        local_instance.power_state = power_state.RUNNING
+        local_instance.save()
 
     def _get_provider_instance_ip(self, context, local_instance, create_node_provider_instance, provider_name, provider_region):
         """
@@ -533,44 +573,125 @@ class KozinakiDriver(driver.ComputeDriver):
                                            block_device_info=None):
         pass
 
-    def _do_provider_instance_action(self, action, instance, new_size=None, image_name=None):
+    def _get_provider_instance_meta(self, instance, key, provider_name=None, provider_region=None):
+
+        if provider_name and provider_region:
+            provider_instance = self._get_provider_instance(instance, provider_name=provider_name, provider_region=provider_region)
+        else:
+            provider_instance = self._get_provider_instance(instance)
+
+        if provider_instance is None:
+            LOG.debug('###### ERROR: _get_provider_instance_meta: unable to get provider_instance')
+            return
+
+        if key == 'state':
+            return provider_instance.state
+
+    def _wait_for_state(self, instance, state, provider_name=None, provider_region=None, dont_set_meta=None, interval=None):
+
+        timeout = 60 * 20
+        wait_time = 0
+
+        if interval:
+            interval = interval
+        else:
+            interval = 5
+
+        while wait_time < timeout:
+
+            provider_instance_state = self._get_provider_instance_meta(instance, 'state', provider_name=provider_name, provider_region=provider_region)
+
+            if provider_instance_state != state:
+                if dont_set_meta is None:
+                    self._set_local_instance_meta(instance, 'provider_task_duration', str(wait_time))
+                wait_time += interval
+                time.sleep(interval)
+            else:
+                break
+
+    def _do_provider_instance_action(self, action, local_instance, new_size=None, image_name=None):
         """
         Perform different actions with provider specific parameters where required
 
-        :param instance:
+        :param local_instance:
         :return:
         """
 
-        provider_instance = self._get_provider_instance(instance)
-        provider_conn = self._get_local_instance_conn(instance)
-
+        provider_instance = self._get_provider_instance(local_instance)
         ## TODO: replace with try/catch block inside the get function, False=True
         if provider_instance is None:
             return
 
-        provider_name = self._get_local_instance_prop(instance, 'provider_name')
+        provider_conn = self._get_local_instance_conn(local_instance)
+
+        provider_name = self._get_local_instance_meta(local_instance, 'provider_name')
         if provider_name == 'AZURE':
-            provider_cloud_service_name = self._get_local_instance_prop(instance, 'cloud_service_name')
+            provider_cloud_service_name = self._get_local_instance_meta(local_instance, 'cloud_service_name')
+        current_state = self._get_provider_instance_meta(local_instance, 'state')
 
         if action == 'start':
             ## TODO: address the case that after StoppedUnallocated instance stops it doesn't have an IP address so after start
             ## TODO: need to add the address to the instance
             if provider_name == 'AZURE':
-                provider_conn.ex_start_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                if current_state == NodeState.STOPPED:
+                    self._set_local_instance_meta(local_instance, 'provider_task_state', 'powering_on')
+                    self._set_local_instance_meta(local_instance, 'provider_task_duration', str(0))
+                    LOG.debug('INFO: _do_provider_action: issuing an ex_start_node command')
+
+                    local_instance.task_state = task_states.POWERING_ON
+                    local_instance.save()
+
+                    provider_conn.ex_start_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                    LOG.debug('INFO: _do_provider_action: completed issuing an ex_start_node command')
+
+                    self._wait_for_state(local_instance, NodeState.RUNNING)
+                    LOG.debug('INFO: _do_provider_action: state attained')
+
+                    self._set_local_instance_meta(local_instance, 'provider_task_state', '-')
+                else:
+                    LOG.debug('_do_provider_instance_action:stop unable to start, since provider instance is already running')
+                    return
             else:
                 provider_conn.ex_start_node(provider_instance)
 
         elif action == 'stop':
-            ## TODO: after the instance is stopped the IP address needs to be deallocated from the local instance
+            ## TODO: after the instance is stopped the IP address needs to be deallocated from the local instance.
             ## TODO: also the network needs be deleted
+
             if provider_name == 'AZURE':
-                provider_conn.ex_stop_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+                if current_state == NodeState.RUNNING:
+                    self._set_local_instance_meta(local_instance, 'provider_task_state', 'powering_off')
+                    self._set_local_instance_meta(local_instance, 'provider_task_duration', str(0))
+
+                    local_instance.task_state = task_states.POWERING_OFF
+                    local_instance.save()
+
+                    provider_conn.ex_stop_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+
+                    self._wait_for_state(local_instance, NodeState.STOPPED)
+                    self._set_local_instance_meta(local_instance, 'provider_task_state', '-')
+                else:
+                    LOG.debug('_do_provider_instance_action:stop unable to stop, since provider instance is already stopped')
+                    return
             else:
                 provider_conn.ex_stop_node(provider_instance)
 
         elif action == 'reboot':
             if provider_name == 'AZURE':
+                self._set_local_instance_meta(local_instance, 'provider_task_state', 'rebooting')
+                self._set_local_instance_meta(local_instance, 'provider_task_duration', str(0))
+
+                local_instance.task_state = task_states.REBOOTING
+                local_instance.save()
+
                 provider_conn.reboot_node(provider_instance, ex_cloud_service_name=provider_cloud_service_name)
+
+                ## TODO: need to figure out what transitional state the instance goes into to catch it
+                ## need an external script to test it out.
+
+                # self._wait_for_state(local_instance, NodeState.REBOOTING, interval=1)
+                # self._wait_for_state(local_instance, NodeState.RUNNING)
+                self._set_local_instance_meta(local_instance, 'provider_task_state', '-')
             else:
                 provider_conn.reboot_node(provider_instance)
 
@@ -579,9 +700,20 @@ class KozinakiDriver(driver.ComputeDriver):
                 return
 
             if provider_name == 'AZURE':
+                LOG.debug('_do_provider_instance_action:resize started')
                 provider_conn.ex_change_node_size(provider_instance, provider_cloud_service_name, new_size)
+
+                # provider_instance_state = self._get_provider_instance_meta(local_instance, 'state', provider_name=provider_name, provider_region=provider_region)
+                LOG.debug('_do_provider_instance_action:resize completed')
             else:
                 self._resize_provider_instance(provider_conn, provider_instance, new_size)
+
+        elif action == 'destroy':
+
+            if provider_name == 'AZURE':
+                provider_conn.destroy_node(provider_instance, provider_cloud_service_name)
+            else:
+                provider_conn.destroy_node(provider_instance)
 
         elif action == 'create-image':
             if not image_name:
@@ -638,10 +770,7 @@ class KozinakiDriver(driver.ComputeDriver):
         :param instance: Local instance
         """
 
-        provider_instance = self._get_provider_instance(instance)
-        if not provider_instance:
-            return
-        self._get_local_instance_conn(instance).destroy_node(provider_instance)
+        self._do_provider_instance_action('destroy', instance)
 
     def snapshot(self, context, instance, name, update_task_state):
         """
@@ -728,6 +857,9 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         provider_instance = self._get_provider_instance(instance)
+
+        # TODO: when unable to detect set the vm instance to fault, white in the fault that
+        #       unable to locate the corresponding instance, only then do the exception3
         if not provider_instance:
             raise exception.InstanceNotFound(instance_id=instance['name'])
 
@@ -895,8 +1027,8 @@ class KozinakiDriver(driver.ComputeDriver):
         if resize_instance:
             flavor = flavors.extract_flavor(instance)
 
-            provider_name = self._get_local_instance_prop(instance, 'provider_name')
-            provider_region = self._get_local_instance_prop(instance, 'provider_region')
+            provider_name = self._get_local_instance_meta(instance, 'provider_name')
+            provider_region = self._get_local_instance_meta(instance, 'provider_region')
 
             sizes = self.conn(provider_name, provider_region).list_sizes()
             new_provider_size = [s for s in sizes if s.id == flavor['name']][0]
