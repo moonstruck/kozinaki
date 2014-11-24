@@ -19,7 +19,6 @@ Base class for Kozinaki unit testing.
 import unittest
 import uuid
 import logging
-from copy import copy
 from nova import rpc
 from nova import objects
 from oslo.config import cfg
@@ -28,6 +27,7 @@ from virt.kozinaki.driver import KozinakiDriver
 from virt.kozinaki.utils import timeout_call
 
 NODE_INFO = 'Node: {} State: {} Size: {}'
+
 
 class NodeSize(object):
     """ Fake node size class. """
