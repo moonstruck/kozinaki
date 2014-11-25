@@ -26,17 +26,17 @@ class KozinakiRackspaceTestCase(KozinakiTestBase):
     def test_resize_ok(self):
         instance, image, metadata = self.create_test_objects(
             name='test',
-            size_id='m1.tiny',
-            image_id='ami-696e652c',
+            size_id='2',
+            image_id='df924994-b686-449a-86e3-1876998022aa',
             provider_name='RACKSPACE',
             provider_region='')
 
         resized_instance, _, _ = self.create_test_objects(
             name='test',
-            size_id='m1.small',
-            image_id='ami-696e652c',
-            provider_name='EC2',
-            provider_region='US_WEST')
+            size_id='3',
+            image_id='df924994-b686-449a-86e3-1876998022aa',
+            provider_name='RACKSPACE',
+            provider_region='')
 
         self.spawn(instance, image)
 
@@ -55,7 +55,7 @@ class KozinakiRackspaceTestCase(KozinakiTestBase):
             block_device_info=None,
             power_on=True)
 
-        node = self.get_node(instance, state=NodeState.RUNNING)
+        node = self.get_node(instance, state=NodeState.PENDING)
         self.assertEqual(node.state, NodeState.RUNNING)
 
 

@@ -82,6 +82,12 @@ class KozinakiTestBase(unittest.TestCase):
 
         image = self.create_image_dict(image_id, provider_metadata)
 
+        instance = self.create_instance_dict(
+            name, new_uuid, size_id, provider_metadata)
+
+        return instance, image, provider_metadata
+
+    def create_instance_dict(self, name, new_uuid, size_id, provider_metadata):
         system_metadata = {
             'instance_type_id': 1,
             'instance_type_name': size_id,
@@ -100,7 +106,7 @@ class KozinakiTestBase(unittest.TestCase):
             'system_metadata': system_metadata,
             'metadata': provider_metadata
         }
-        return instance, image, provider_metadata
+        return instance
 
     def create_image_dict(self, image_id, provider_metadata):
         image = {
@@ -121,7 +127,7 @@ class KozinakiTestBase(unittest.TestCase):
         }
         return metadata
 
-    @timeout_call(wait_period=3, timeout=100)
+    @timeout_call(wait_period=3, timeout=600)
     def get_node(self, instance, state=None):
         self.log.info(
             'Get node: %s' % instance['metadata']['provider_instance_name'])

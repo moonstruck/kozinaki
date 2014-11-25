@@ -27,8 +27,8 @@ class KozinakiRackspaceTestCase(KozinakiTestBase):
 
         instance, image, metadata = self.create_test_objects(
             name='test',
-            size_id='m1.tiny',
-            image_id='ami-696e652c',
+            size_id='2',
+            image_id='df924994-b686-449a-86e3-1876998022aa',
             provider_name='RACKSPACE',
             provider_region='')
 
