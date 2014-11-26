@@ -69,8 +69,8 @@ class KozinakiEC2TestCase(KozinakiTestBase):
             reboot_type=None,
             block_device_info=None)
 
-        node = self.get_node(objects[0]['instance'], state=NodeState.REBOOTING)
-        self.assertEqual(node.state, NodeState.REBOOTING)
+        node = self.get_node(objects[0]['instance'], state=NodeState.RUNNING)
+        self.assertEqual(node.state, NodeState.RUNNING)
 
         # Resize
         resized_instance = copy.copy(objects[1]['instance'])
