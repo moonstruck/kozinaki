@@ -147,7 +147,7 @@ class KozinakiTestBase(unittest.TestCase):
         return node.state
 
     def spawn(self, instance, image):
-        self.log.info('Spawning test node')
+        self.log.info('Spawning test node: %s' % instance['metadata']['provider_instance_name'])
         self.driver.spawn(
             context=None,
             instance=instance,
