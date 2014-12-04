@@ -50,7 +50,6 @@ from nova.virt import driver
 from nova.virt import virtapi
 
 from nova.network.manager import NetworkManager
-
 from functools import wraps
 
 from libcloud.compute.providers import get_driver
@@ -375,6 +374,14 @@ class KozinakiDriver(driver.ComputeDriver):
 
         name = self._create_instance_name(instance['uuid'])
 
+        """ Injecting provider info metadata into instance object """
+        metadata = dict(
+            provider_name=provider_name,
+            provider_region=provider_region,
+            provider_image=provider_image,
+            provider_instance_name=name)
+        instance['metadata'] = metadata
+
         flavor = flavors.extract_flavor(instance)
 
         # TODO: move to separate function _get_provider_size_from_flavor
@@ -382,7 +389,6 @@ class KozinakiDriver(driver.ComputeDriver):
         size = [s for s in sizes if s.id == flavor['name']][0]
 
         provider_image = NodeImage(id=provider_image, name=None, driver=self.conn(provider_name, provider_region))
-
         try:
             if provider_name == 'AZURE':
                 # TODO: add handling of ex_admin_user_id
@@ -403,7 +409,7 @@ class KozinakiDriver(driver.ComputeDriver):
                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size, ex_keyname=instance.get('key_data'))
                 else:
                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size)
-
+                self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
         except:
             ## TODO: get rid of the debug prints
             print sys.exc_info()
@@ -412,6 +418,7 @@ class KozinakiDriver(driver.ComputeDriver):
                 _('Cannot create new instance'),
                 instance_id = instance['name'])
         else:
+            LOG.debug(_LOG.format("INFO: before eventlet for provider IP assignment"))
             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
 
     def _setup_local_instance(self, context, local_instance, create_node_provider_instance, provider_name, provider_region):
@@ -419,9 +426,12 @@ class KozinakiDriver(driver.ComputeDriver):
         Setup local instance with IP address and instance's properties in metadata, such as provider_name, provider_region,
         provider_instance_name
         """
-
+        LOG.debug(_LOG.format("INFO: check provider_instance %s" %  create_node_provider_instance))
+        LOG.debug(_LOG.format("INFO: _get_provider_instance_ip"))
         provider_instance_ip = self._get_provider_instance_ip(context, local_instance, create_node_provider_instance, provider_name, provider_region)
+        LOG.debug(_LOG.format("INFO: _bind_ip_to_instance : %s" % provider_instance_ip))
         self._bind_ip_to_instance(context, local_instance, provider_instance_ip)
+        LOG.debug(_LOG.format("INFO: _update_local_instance_meta"))
         self._update_local_instance_meta(context, local_instance, provider_name, provider_region, create_node_provider_instance.name)
 
         local_instance.power_state = power_state.RUNNING
@@ -470,39 +480,57 @@ class KozinakiDriver(driver.ComputeDriver):
             All networks had to be named the same due to their display in Horizon.
             displayed as multiple networks, this has to do with multi-AZ setup and network-to-host association
         """
-
-        for net in network_obj.NetworkList.get_all(admin_context):
-            if IPAddress(provider_instance_ip) in net._cidr:
-                break
-        else:
+        try:
+            network = self._get_local_network(admin_context, IPAddress(provider_instance_ip))
+        except:
+            network = None
+        if not network:
             a = provider_instance_ip.split('.')
             cidr = '.'.join(a[:3])+".0/24"
-            network_manager.create_networks(admin_context, "test", cidr=cidr, bridge_interface="eth0", bridge="br100")
-
+            network_manager.create_networks(admin_context, "test-tom", cidr=cidr, bridge_interface="eth0", bridge="br100")
+            try:
+                network = self._get_local_network(admin_context, provider_instance_ip)
+            except:
+                pass
         ## TODO: Figure out how --nic option enables to bind only one network to th local instance
         ## TODO: FixedIpAlreadyInUse_Remote: Fixed IP address 137.116.234.178 is already in use on instance 934798a3-bde0-42e3-9843-40f3539a6acd.
 
-        for net in network_obj.NetworkList.get_all(admin_context):
-            if IPAddress(provider_instance_ip) in net._cidr:
-                """ fip (fixed IP) and we create this object """
-                fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=net.id, reserved=False)
-                fip.allocated = True
-                """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
-                vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], net.id)
-                """ we set the vif of the fip """
-                if vif:
-                    fip.virtual_interface_id = vif.id
-                """ saving it writes it into the table """
-                fip.save()
+        LOG.debug('INFO: Provider-IP based network found - allocating to instance')
+#         """ fip (fixed IP) and we create this object """
+#         fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=network.id, reserved=False)
+#         fip.allocated = True
+#         """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
+#         vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], network.id)
+#         """ we set the vif of the fip """
+#         if vif:
+#             fip.virtual_interface_id = vif.id
+#         """ saving it writes it into the table """
+#         fip.save()
+# 
+#         """ After that we extract the network information from the network-related tables """
+#         nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
+#         """ Create a cache object """
+#         ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
+#         """ we now update and save the cache object with the network information """
+#         ic.network_info = nw_info
+#         ic.save(update_cells=True)
+        LOG.debug('INFO: allocate_fixed_ip')
+        if not network:
+            network_manager.allocate_fixed_ip(admin_context, local_instance['uuid'], network)
+        else:
+            LOG.debug('ERROR: network not succesfully created - cannot be added to instnace')
 
-                """ After that we extract the network information from the network-related tables """
-                nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
-                """ Create a cache object """
-                ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
-                """ we now update and save the cache object with the network information """
-                ic.network_info = nw_info
-                ic.save(update_cells=False)
-                break
+#     @timeout_call(wait_period=3, timeout=20)
+    def _get_local_network(self, context, ip_address):
+        """
+        This method returns Network object if found.
+        :param ip_address
+        :return: Network:
+        """
+        for net in network_obj.NetworkList.get_all(context):
+            if IPAddress(ip_address) in net._cidr:
+                return net
+        raise('Network not found')
 
     def live_snapshot(self, context, instance, name, update_task_state):
         """Snapshot an instance without downtime."""

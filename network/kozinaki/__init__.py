@@ -1,6 +1,7 @@
 
 import eventlet
 import netaddr
+import logging
 from oslo.config import cfg
 from oslo import messaging
 
@@ -36,6 +37,7 @@ from nova import utils
 
 from nova.network.manager import RPCAllocateFixedIP, NetworkManager
 
+LOG = logging.getLogger(__name__)
 network_opts = [
     cfg.StrOpt('flat_network_bridge',
                help='Bridge for simple network instances'),
@@ -156,16 +158,17 @@ class FlatManager(RPCAllocateFixedIP, NetworkManager):
     def _allocate_fixed_ips(self, context, instance_id, host, networks,
                             **kwargs):
         """Calls allocate_fixed_ip once for each network."""
-        requested_networks = kwargs.get('requested_networks')
-        for network in networks:
-            address = None
-            if requested_networks is not None:
-                for address in (fixed_ip for (uuid, fixed_ip) in
-                                requested_networks if network['uuid'] == uuid):
-                    break
-
-            self.allocate_fixed_ip(context, instance_id,
-                                   network, address=address)
+        LOG.debug("### Connecting all available IPs to instance (_allocate_fixed_ips)")
+#         requested_networks = kwargs.get('requested_networks')
+#         for network in networks:
+#             address = None
+#             if requested_networks is not None:
+#                 for address in (fixed_ip for (uuid, fixed_ip) in
+#                                 requested_networks if network['uuid'] == uuid):
+#                     break
+# 
+#             self.allocate_fixed_ip(context, instance_id,
+#                                    network, address=address)
 
     def deallocate_fixed_ip(self, context, address, host=None, teardown=True,
             instance=None):
