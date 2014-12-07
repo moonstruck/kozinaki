@@ -12,7 +12,11 @@ def timeout_call(wait_period, timeout):
         @wraps(f)
         def _wrapped(*args, **kwargs):
             start = time.time()
-            end = start + timeout
+            if '_timeout' in kwargs and kwargs['_timeout']:
+                _timeout = kwargs['_timeout']
+                end = start + _timeout
+            else:
+                end = start + timeout
             exc = None
             while(time.time() < end):
                 try:
@@ -22,3 +26,11 @@ def timeout_call(wait_period, timeout):
             raise exc
         return _wrapped
     return _inner
+
+# test
+@timeout_call(wait_period=3, timeout=600)
+def func():
+    raise Exception('none')
+
+if __name__ == "__main__":
+    func(_timeout=3)

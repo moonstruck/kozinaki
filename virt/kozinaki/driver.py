@@ -366,7 +366,8 @@ class KozinakiDriver(driver.ComputeDriver):
         :param block_device_info: Information about block devices to be
                                   attached to the instance.
         """
-
+#         import sys; sys.path.append('/root/pysrc')
+#         import pydevd; pydevd.settrace('127.0.0.1', port=1000,  stdoutToServer=True, stderrToServer=True,suspend=True)
         """ Extractin provider info from meta """
         provider_name = self._get_local_image_meta(image_meta, 'provider_name')
         provider_region = self._get_local_image_meta(image_meta, 'provider_region')
@@ -419,7 +420,8 @@ class KozinakiDriver(driver.ComputeDriver):
                 instance_id = instance['name'])
         else:
             LOG.debug(_LOG.format("INFO: before eventlet for provider IP assignment"))
-            eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
+#             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
+            self._setup_local_instance(context, instance, provider_instance, provider_name, provider_region)
 
     def _setup_local_instance(self, context, local_instance, create_node_provider_instance, provider_name, provider_region):
         """
@@ -431,8 +433,8 @@ class KozinakiDriver(driver.ComputeDriver):
         provider_instance_ip = self._get_provider_instance_ip(context, local_instance, create_node_provider_instance, provider_name, provider_region)
         LOG.debug(_LOG.format("INFO: _bind_ip_to_instance : %s" % provider_instance_ip))
         self._bind_ip_to_instance(context, local_instance, provider_instance_ip)
-        LOG.debug(_LOG.format("INFO: _update_local_instance_meta"))
-        self._update_local_instance_meta(context, local_instance, provider_name, provider_region, create_node_provider_instance.name)
+#         LOG.debug(_LOG.format("INFO: _update_local_instance_meta"))
+#         self._update_local_instance_meta(context, local_instance, provider_name, provider_region, create_node_provider_instance.name)
 
         local_instance.power_state = power_state.RUNNING
         local_instance.save()
@@ -481,47 +483,43 @@ class KozinakiDriver(driver.ComputeDriver):
             displayed as multiple networks, this has to do with multi-AZ setup and network-to-host association
         """
         try:
-            network = self._get_local_network(admin_context, IPAddress(provider_instance_ip))
+            LOG.debug(_LOG.format("INFO: first wait for network"))
+            network = self._get_local_network(admin_context, IPAddress(provider_instance_ip), _timeout=10)
         except:
-            network = None
-        if not network:
             a = provider_instance_ip.split('.')
             cidr = '.'.join(a[:3])+".0/24"
-            network_manager.create_networks(admin_context, "test-tom", cidr=cidr, bridge_interface="eth0", bridge="br100")
-            try:
-                network = self._get_local_network(admin_context, provider_instance_ip)
-            except:
-                pass
+            network_manager.create_networks(admin_context, "test-tom", cidr=cidr, bridge_interface="eth0", bridge="br100")[0]
         ## TODO: Figure out how --nic option enables to bind only one network to th local instance
         ## TODO: FixedIpAlreadyInUse_Remote: Fixed IP address 137.116.234.178 is already in use on instance 934798a3-bde0-42e3-9843-40f3539a6acd.
+        LOG.debug(_LOG.format("INFO: second wait for network - after creation"))
+        network = self._get_local_network(admin_context, IPAddress(provider_instance_ip))
+        LOG.debug(_LOG.format('INFO: Local network for provider instance found.'))
+        """ fip (fixed IP) and we create this object """
+        fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=network['id'], reserved=False)
+        fip.allocated = True
+        """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
+#         vif = self._get_virtual_interface(admin_context, local_instance['uuid'], network['id'])
+        vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], network['id'])
+        """ we set the vif of the fip """
+        fip.virtual_interface_id = vif.id
+        """ saving it writes it into the table """
+        fip.save()
+ 
+        """ After that we extract the network information from the network-related tables """
+        nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
+        """ Create a cache object """
+        ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
+        """ we now update and save the cache object with the network information """
+        ic.network_info = nw_info
+        ic.save(update_cells=True)
+#         LOG.debug('INFO: allocate_fixed_ip')
+#         if network:
+#             network_manager.allocate_fixed_ip(admin_context, local_instance['uuid'], network)
+#         else:
+#             LOG.debug('ERROR: network not succesfully created - cannot be added to instnace')
 
-        LOG.debug('INFO: Provider-IP based network found - allocating to instance')
-#         """ fip (fixed IP) and we create this object """
-#         fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=network.id, reserved=False)
-#         fip.allocated = True
-#         """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
-#         vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], network.id)
-#         """ we set the vif of the fip """
-#         if vif:
-#             fip.virtual_interface_id = vif.id
-#         """ saving it writes it into the table """
-#         fip.save()
-# 
-#         """ After that we extract the network information from the network-related tables """
-#         nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
-#         """ Create a cache object """
-#         ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
-#         """ we now update and save the cache object with the network information """
-#         ic.network_info = nw_info
-#         ic.save(update_cells=True)
-        LOG.debug('INFO: allocate_fixed_ip')
-        if not network:
-            network_manager.allocate_fixed_ip(admin_context, local_instance['uuid'], network)
-        else:
-            LOG.debug('ERROR: network not succesfully created - cannot be added to instnace')
-
-#     @timeout_call(wait_period=3, timeout=20)
-    def _get_local_network(self, context, ip_address):
+    @timeout_call(wait_period=3, timeout=600)
+    def _get_local_network(self, context, ip_address, _timeout=None):
         """
         This method returns Network object if found.
         :param ip_address
@@ -530,7 +528,14 @@ class KozinakiDriver(driver.ComputeDriver):
         for net in network_obj.NetworkList.get_all(context):
             if IPAddress(ip_address) in net._cidr:
                 return net
-        raise('Network not found')
+        raise Exception('Local network not found')
+
+    @timeout_call(wait_period=3, timeout=10)
+    def _get_virtual_interface(self, context, instance_id, network_id):
+        vif = vif_obj.VirtualInterface.get_by_instance_and_network(context, instance_id, network_id)
+        if vif:
+            return vif
+        raise Exception('Virtual Interface for provider-ip network not found')
 
     def live_snapshot(self, context, instance, name, update_task_state):
         """Snapshot an instance without downtime."""
