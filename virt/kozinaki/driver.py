@@ -366,8 +366,8 @@ class KozinakiDriver(driver.ComputeDriver):
         :param block_device_info: Information about block devices to be
                                   attached to the instance.
         """
-#         import sys; sys.path.append('/root/pysrc')
-#         import pydevd; pydevd.settrace('127.0.0.1', port=1000,  stdoutToServer=True, stderrToServer=True,suspend=True)
+        import sys; sys.path.append('/root/pysrc')
+        import pydevd; pydevd.settrace('127.0.0.1', port=1000,  stdoutToServer=True, stderrToServer=True,suspend=True)
         """ Extractin provider info from meta """
         provider_name = self._get_local_image_meta(image_meta, 'provider_name')
         provider_region = self._get_local_image_meta(image_meta, 'provider_region')
