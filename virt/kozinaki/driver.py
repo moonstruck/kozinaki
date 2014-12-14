@@ -24,6 +24,7 @@ import pprint
 from virt.kozinaki.utils import timeout_call
 
 from nova import conductor
+from nova import network
 from nova import db
 from nova import exception
 from nova import compute
@@ -49,7 +50,7 @@ from nova.virt import driver
 
 from nova.virt import virtapi
 
-from nova.network.manager import NetworkManager
+from network.kozinaki import FlatManager
 from functools import wraps
 
 from libcloud.compute.providers import get_driver
@@ -109,6 +110,7 @@ class KozinakiDriver(driver.ComputeDriver):
         self._version = '0.1'
         self._interfaces = {}
         self.conductor_api = conductor.API()
+        self.network_api = network.API()
 
     # TODO (rnl): figure out why there was a @property decorator
     def conn(self, provider_name, provider_region=None):
@@ -366,8 +368,9 @@ class KozinakiDriver(driver.ComputeDriver):
         :param block_device_info: Information about block devices to be
                                   attached to the instance.
         """
-        import sys; sys.path.append('/root/pysrc')
-        import pydevd; pydevd.settrace('127.0.0.1', port=1000,  stdoutToServer=True, stderrToServer=True,suspend=True)
+#         import sys; sys.path.append('/root/pysrc')
+#         import pydevd; pydevd.settrace('127.0.0.1', port=1000,  stdoutToServer=True, stderrToServer=True,suspend=True)
+#         import pdb; pdb.set_trace()  
         """ Extractin provider info from meta """
         provider_name = self._get_local_image_meta(image_meta, 'provider_name')
         provider_region = self._get_local_image_meta(image_meta, 'provider_region')
@@ -475,7 +478,7 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         admin_context = ctxt2.get_admin_context()
-        network_manager = NetworkManager()
+        network_manager = FlatManager()
 
         """ This loop checks whether the nova network exists for the IP address that we received to be bound to the local instance
             If network doesn't exist, it is created with /24 mask and named 'test'.
@@ -494,24 +497,40 @@ class KozinakiDriver(driver.ComputeDriver):
         LOG.debug(_LOG.format("INFO: second wait for network - after creation"))
         network = self._get_local_network(admin_context, IPAddress(provider_instance_ip))
         LOG.debug(_LOG.format('INFO: Local network for provider instance found.'))
-        """ fip (fixed IP) and we create this object """
-        fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=network['id'], reserved=False)
-        fip.allocated = True
-        """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
-#         vif = self._get_virtual_interface(admin_context, local_instance['uuid'], network['id'])
-        vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], network['id'])
-        """ we set the vif of the fip """
-        fip.virtual_interface_id = vif.id
-        """ saving it writes it into the table """
-        fip.save()
- 
-        """ After that we extract the network information from the network-related tables """
-        nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
-        """ Create a cache object """
-        ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
-        """ we now update and save the cache object with the network information """
-        ic.network_info = nw_info
-        ic.save(update_cells=True)
+
+        macs = self.macs_for_instance(local_instance)
+        dhcp_options = self.dhcp_options_for_instance(local_instance)
+        security_groups = []
+        is_vpn = False
+        requested_networks = [[network['uuid'], IPAddress(provider_instance_ip)]]
+        self.network_api.allocate_for_instance(
+            admin_context, local_instance,
+            vpn=is_vpn,
+            requested_networks=requested_networks,
+            macs=macs,
+            security_groups=security_groups,
+            dhcp_options=dhcp_options)
+#         """ fip (fixed IP) and we create this object """
+#         return
+#         fip = fixed_ip_obj.FixedIP.associate(admin_context, IPAddress(provider_instance_ip), local_instance['uuid'], network_id=network['id'], reserved=False)
+#         fip.allocated = True
+#         return
+#         """ vif (virtual interface) that we create based on the network that either existed or the one that we created """
+#         LOG.debug(_LOG.format('INFO: Waiting for VIF: %s, %s' % (local_instance['uuid'], network['id'])))
+# #         vif = self._get_virtual_interface(admin_context, local_instance['uuid'], network['id'])
+#         vif = vif_obj.VirtualInterface.get_by_instance_and_network(admin_context, local_instance['uuid'], network['id'])
+#         """ we set the vif of the fip """
+#         fip.virtual_interface_id = vif.id
+#         """ saving it writes it into the table """
+#         fip.save()#             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
+#  
+#         """ After that we extract the network information from the network-related tables """
+#         nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
+#         """ Create a cache object """
+#         ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
+#         """ we now update and save the cache object with the network information """
+#         ic.network_info = nw_info
+#         ic.save(update_cells=True)
 #         LOG.debug('INFO: allocate_fixed_ip')
 #         if network:
 #             network_manager.allocate_fixed_ip(admin_context, local_instance['uuid'], network)
@@ -530,7 +549,7 @@ class KozinakiDriver(driver.ComputeDriver):
                 return net
         raise Exception('Local network not found')
 
-    @timeout_call(wait_period=3, timeout=10)
+    @timeout_call(wait_period=3, timeout=60)
     def _get_virtual_interface(self, context, instance_id, network_id):
         vif = vif_obj.VirtualInterface.get_by_instance_and_network(context, instance_id, network_id)
         if vif:

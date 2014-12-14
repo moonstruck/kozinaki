@@ -155,10 +155,14 @@ class FlatManager(RPCAllocateFixedIP, NetworkManager):
 
     required_create_args = ['bridge']
 
-    def _allocate_fixed_ips(self, context, instance_id, host, networks,
-                            **kwargs):
-        """Calls allocate_fixed_ip once for each network."""
-        LOG.debug("### Connecting all available IPs to instance (_allocate_fixed_ips)")
+#     def _allocate_mac_addresses(self, context, instance_uuid, networks, macs):s):
+#         """ We are allocating instance during instance spawn, so we don't
+#             need this part. """
+#         pass
+
+#     def _allocate_fixed_ips(self, context, instance_id, host, networks,
+#                             **kwargs):
+#         """We are allocating IPs during instance spawn."""
 #         requested_networks = kwargs.get('requested_networks')
 #         for network in networks:
 #             address = None
@@ -169,6 +173,29 @@ class FlatManager(RPCAllocateFixedIP, NetworkManager):
 # 
 #             self.allocate_fixed_ip(context, instance_id,
 #                                    network, address=address)
+
+#     def _get_networks_for_instance(self, context, instance_id, project_id,
+#                                    requested_networks=None):
+#         LOG.debug("###%s \n\n"  % requested_networks)
+#         if requested_networks is not None and len(requested_networks) != 0:
+#             return NetworkManager._get_networks_for_instance(self, context, instance_id, project_id,
+#                                    requested_networks=requested_networks)
+#         else:
+#             return []
+
+    def allocate_for_instance(self, context, **kwargs):
+        requested_networks = kwargs.get('requested_networks')
+        if requested_networks is not None and len(requested_networks) != 0:
+            return NetworkManager.allocate_for_instance(self, context, **kwargs)
+        else:
+            instance_uuid = kwargs['instance_id']
+            if not uuidutils.is_uuid_like(instance_uuid):
+                instance_uuid = kwargs.get('instance_uuid')
+            host = kwargs['host']
+            rxtx_factor = kwargs['rxtx_factor']
+
+            return self.get_instance_nw_info(context, instance_uuid, rxtx_factor,
+                                             host)
 
     def deallocate_fixed_ip(self, context, address, host=None, teardown=True,
             instance=None):

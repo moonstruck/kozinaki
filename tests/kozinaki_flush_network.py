@@ -20,9 +20,9 @@ import unittest
 from libcloud.compute.types import NodeState
 from base import KozinakiTestBase
 from nova.db.sqlalchemy import api
+from nova.db.sqlalchemy.models import FixedIp
 from nova.openstack.common.timeutils import utcnow
 import nova.context
-import datetime
 
 
 class KozinakiNetworkTestCase(KozinakiTestBase):
@@ -33,23 +33,32 @@ class KozinakiNetworkTestCase(KozinakiTestBase):
 #         self.driver._get_local_network(admin_context, ' 54.176.240.0')
 
         # delete all vifs
-        for vif in api.virtual_interface_get_all(admin_context):
-            api.virtual_interface_delete_by_instance(admin_context, vif.instance_uuid)
+#         for vif in api.virtual_interface_get_all(admin_context):
+#             api.virtual_interface_delete_by_instance(admin_context, vif.instance_uuid)
 
-        # deassign all fips from networks
-        for fixed_ip in api.fixed_ip_get_all(admin_context):
-            fixed_ip['network_id' ]= 0
-            fixed_ip['allocated' ]= False
-            fixed_ip.save()
+        # delete all fips from networks
+#         for fixed_ip in api.fixed_ip_get_all(admin_context):
+#             self.log.info("Disassociating FixedIP with address: %s instance_uuid: %s" % (fixed_ip['address'], fixed_ip['instance_uuid']))
+#             fixed_ip['instance_uuid'] = None
+#             fixed_ip['network_id' ] = None
+#             fixed_ip['allocated' ] = False
+#             fixed_ip['leased'] = False
+#             fixed_ip['reserved'] = False
+#             fixed_ip['host'] = None
+#             fixed_ip['updated_at'] = utcnow()
+#             fixed_ip.save()
 
         # delete all networks
-        for net in api.network_get_all(admin_context, project_only='allow_none'):
-            api.network_delete_safe(admin_context, net.id)
+#         for net in api.network_get_all(admin_context, project_only='allow_none'):
+#             api.network_delete_safe(admin_context, net.id)
 
         # check it
-        print api.fixed_ip_get_all(admin_context)
-        print api.virtual_interface_get_all(admin_context)
-        print api.network_get_all(admin_context, 'allow_none')
+#         print api.fixed_ip_get_all(admin_context)
+#         print api.network_get_all(admin_context, 'allow_none')
+        vifs = api.virtual_interface_get_all(admin_context)
+        for vif in vifs:
+            print "Vif: instance_uuid: %s network_id: %s" % (vif['instance_uuid'], vif['network_id'])
+
 
 
 if __name__ == '__main__':
