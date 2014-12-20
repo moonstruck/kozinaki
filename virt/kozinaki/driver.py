@@ -424,9 +424,9 @@ class KozinakiDriver(driver.ComputeDriver):
         else:
             LOG.debug(_LOG.format("INFO: before eventlet for provider IP assignment"))
 #             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
-            self._setup_local_instance(context, instance, provider_instance, provider_name, provider_region)
+            self._setup_local_instance(context, instance, provider_instance, provider_name, provider_region, network_info)
 
-    def _setup_local_instance(self, context, local_instance, create_node_provider_instance, provider_name, provider_region):
+    def _setup_local_instance(self, context, local_instance, create_node_provider_instance, provider_name, provider_region, network_info):
         """
         Setup local instance with IP address and instance's properties in metadata, such as provider_name, provider_region,
         provider_instance_name
@@ -435,12 +435,12 @@ class KozinakiDriver(driver.ComputeDriver):
         LOG.debug(_LOG.format("INFO: _get_provider_instance_ip"))
         provider_instance_ip = self._get_provider_instance_ip(context, local_instance, create_node_provider_instance, provider_name, provider_region)
         LOG.debug(_LOG.format("INFO: _bind_ip_to_instance : %s" % provider_instance_ip))
-        self._bind_ip_to_instance(context, local_instance, provider_instance_ip)
-#         LOG.debug(_LOG.format("INFO: _update_local_instance_meta"))
+        self._bind_ip_to_instance(context, local_instance, provider_instance_ip, network_info)
+        LOG.debug(_LOG.format("INFO: _update_local_instance_meta"))
 #         self._update_local_instance_meta(context, local_instance, provider_name, provider_region, create_node_provider_instance.name)
-
-        local_instance.power_state = power_state.RUNNING
-        local_instance.save()
+# 
+#         local_instance.power_state = power_state.RUNNING
+#         local_instance.save()
 
     def _get_provider_instance_ip(self, context, local_instance, create_node_provider_instance, provider_name, provider_region):
         """
@@ -467,7 +467,7 @@ class KozinakiDriver(driver.ComputeDriver):
                 break
         return
 
-    def _bind_ip_to_instance(self, context, local_instance, provider_instance_ip):
+    def _bind_ip_to_instance(self, context, local_instance, provider_instance_ip, network_info):
         """
         Binds provider instance IP address to the local instance
 
@@ -523,15 +523,21 @@ class KozinakiDriver(driver.ComputeDriver):
 #         fip.virtual_interface_id = vif.id
 #         """ saving it writes it into the table """
 #         fip.save()#             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
-#  
+# 
 #         """ After that we extract the network information from the network-related tables """
-#         nw_info = network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None)
+        for _ in range(len(network_info)):
+            network_info.pop()
+
+        time.sleep(5)
+        network_info.extend(network_manager.get_instance_nw_info(admin_context, local_instance['uuid'], None, None))
+        LOG.debug(network_info)
+#         self.network_api.update_instance_cache_with_nw_info(admin_context, local_instance, nw_info=nw_info)
 #         """ Create a cache object """
-#         ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
+        ic = info_cache_obj.InstanceInfoCache.new(admin_context, local_instance['uuid'])
 #         """ we now update and save the cache object with the network information """
-#         ic.network_info = nw_info
-#         ic.save(update_cells=True)
-#         LOG.debug('INFO: allocate_fixed_ip')
+        ic.network_info = network_info
+        ic.save(update_cells=True)
+        LOG.debug('INFO: bind_ip done')
 #         if network:
 #             network_manager.allocate_fixed_ip(admin_context, local_instance['uuid'], network)
 #         else:
