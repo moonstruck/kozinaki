@@ -32,9 +32,9 @@ class KozinakiNetworkTestCase(KozinakiTestBase):
 #         self.log.info('List all networks cidr')
 #         self.driver._get_local_network(admin_context, ' 54.176.240.0')
 
-        # delete all vifs
-#         for vif in api.virtual_interface_get_all(admin_context):
-#             api.virtual_interface_delete_by_instance(admin_context, vif.instance_uuid)
+#         delete all vifs
+        for vif in api.virtual_interface_get_all(admin_context):
+            api.virtual_interface_delete_by_instance(admin_context, vif.instance_uuid)
 
         # delete all fips from networks
 #         for fixed_ip in api.fixed_ip_get_all(admin_context):
@@ -47,10 +47,10 @@ class KozinakiNetworkTestCase(KozinakiTestBase):
 #             fixed_ip['host'] = None
 #             fixed_ip['updated_at'] = utcnow()
 #             fixed_ip.save()
-
+ 
         # delete all networks
-#         for net in api.network_get_all(admin_context, project_only='allow_none'):
-#             api.network_delete_safe(admin_context, net.id)
+        for net in api.network_get_all(admin_context, project_only='allow_none'):
+            api.network_delete_safe(admin_context, net.id)
 
         # check it
 #         print api.fixed_ip_get_all(admin_context)

@@ -197,13 +197,13 @@ class FlatManager(RPCAllocateFixedIP, NetworkManager):
             return self.get_instance_nw_info(context, instance_uuid, rxtx_factor,
                                              host)
 
-#     def deallocate_fixed_ip(self, context, address, host=None, teardown=True,
-#             instance=None):
-#         """Returns a fixed ip to the pool."""
-#         #super(FlatManager, self).deallocate_fixed_ip(context, address, host,
-#         #                                             teardown,
-#         #                                             instance=instance)
-#         fixed_ip_obj.FixedIP.disassociate_by_address(context, address)
+    def deallocate_fixed_ip(self, context, address, host=None, teardown=True,
+            instance=None):
+        """Returns a fixed ip to the pool."""
+        #super(FlatManager, self).deallocate_fixed_ip(context, address, host,
+        #                                             teardown,
+        #                                             instance=instance)
+        fixed_ip_obj.FixedIP.disassociate_by_address(context, address)
 
     def _setup_network_on_host(self, context, network):
         """Setup Network on this host."""

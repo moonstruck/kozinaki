@@ -45,6 +45,7 @@ from nova.objects import instance_info_cache as info_cache_obj
 
 from nova.openstack.common import log as logging
 from nova.openstack.common.gettextutils import _
+from nova.openstack.common.lockutils import synchronized
 
 from nova.virt import driver
 
@@ -113,6 +114,7 @@ class KozinakiDriver(driver.ComputeDriver):
         self.network_api = network.API()
 
     # TODO (rnl): figure out why there was a @property decorator
+#     @synchronized('provider-access')
     def conn(self, provider_name, provider_region=None):
         """
         Establish connection to the cloud provider. Cloud provider
@@ -343,6 +345,7 @@ class KozinakiDriver(driver.ComputeDriver):
 #             return _wrapped
 #         return _inner
 
+    @synchronized('spawn')
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
 
@@ -491,7 +494,7 @@ class KozinakiDriver(driver.ComputeDriver):
         except:
             a = provider_instance_ip.split('.')
             cidr = '.'.join(a[:3])+".0/24"
-            network_manager.create_networks(admin_context, "test-tom", cidr=cidr, bridge_interface="eth0", bridge="br100")[0]
+            network_manager.create_networks(admin_context, "test-tom", cidr=cidr, bridge_interface="eth0")
         ## TODO: Figure out how --nic option enables to bind only one network to th local instance
         ## TODO: FixedIpAlreadyInUse_Remote: Fixed IP address 137.116.234.178 is already in use on instance 934798a3-bde0-42e3-9843-40f3539a6acd.
         LOG.debug(_LOG.format("INFO: second wait for network - after creation"))
