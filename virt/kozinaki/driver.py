@@ -279,6 +279,7 @@ class KozinakiDriver(driver.ComputeDriver):
 
         return self.conn(provider_name, provider_region)
 
+    @synchronized('_get_provider_instance')
     def _get_provider_instance(self, instance, provider_name=None, provider_region=None):
         """
         :param instance: local instance
@@ -345,7 +346,6 @@ class KozinakiDriver(driver.ComputeDriver):
 #             return _wrapped
 #         return _inner
 
-    @synchronized('spawn')
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
 
@@ -397,26 +397,27 @@ class KozinakiDriver(driver.ComputeDriver):
 
         provider_image = NodeImage(id=provider_image, name=None, driver=self.conn(provider_name, provider_region))
         try:
-            if provider_name == 'AZURE':
-                # TODO: add handling of ex_admin_user_id
-                LOG.debug('INFO: spawn: running create node')
-                provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size,
-                                                                                          auth=NodeAuthPassword(self._providers[provider_name]['default_password']),
-                                                                                          ex_cloud_service_name=self._providers[provider_name]['cloud_service_name'],
-                                                                                          ex_storage_service_name=self._providers[provider_name]['storage_service_name'])
-
-                LOG.debug('INFO: spawn: create node completed, waiting on the node creation')
-
-                self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
-
-                LOG.debug('INFO: spawn: state attained')
-
-            else:
-                if instance.get('key_data'):
-                    provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size, ex_keyname=instance.get('key_data'))
-                else:
-                    provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size)
-                self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+#             if provider_name == 'AZURE':
+#                 # TODO: add handling of ex_admin_user_id
+#                 LOG.debug('INFO: spawn: running create node')
+#                 provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size,
+#                                                                                           auth=NodeAuthPassword(self._providers[provider_name]['default_password']),
+#                                                                                           ex_cloud_service_name=self._providers[provider_name]['cloud_service_name'],
+#                                                                                           ex_storage_service_name=self._providers[provider_name]['storage_service_name'])
+# 
+#                 LOG.debug('INFO: spawn: create node completed, waiting on the node creation')
+# 
+#                 self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+# 
+#                 LOG.debug('INFO: spawn: state attained')
+# 
+#             else:
+#                 if instance.get('key_data'):
+#                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size, ex_keyname=instance.get('key_data'))
+#                 else:
+#                     provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size)
+#                 self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+            provider_instance = self._do_spawn(instance, name, size, provider_name, provider_region, provider_image)
         except:
             ## TODO: get rid of the debug prints
             print sys.exc_info()
@@ -428,6 +429,31 @@ class KozinakiDriver(driver.ComputeDriver):
             LOG.debug(_LOG.format("INFO: before eventlet for provider IP assignment"))
 #             eventlet.spawn(self._setup_local_instance, context, instance, provider_instance, provider_name, provider_region)
             self._setup_local_instance(context, instance, provider_instance, provider_name, provider_region, network_info)
+
+    @synchronized('_do_spawn')
+    def _do_spawn(self, instance, name, size, provider_name, provider_region, provider_image):
+        if provider_name == 'AZURE':
+            # TODO: add handling of ex_admin_user_id
+            LOG.debug('INFO: spawn: running create node')
+            provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size,
+                                                                                      auth=NodeAuthPassword(self._providers[provider_name]['default_password']),
+                                                                                      ex_cloud_service_name=self._providers[provider_name]['cloud_service_name'],
+                                                                                      ex_storage_service_name=self._providers[provider_name]['storage_service_name'])
+
+            LOG.debug('INFO: spawn: create node completed, waiting on the node creation')
+
+            self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+
+            LOG.debug('INFO: spawn: state attained')
+
+        else:
+            if instance.get('key_data'):
+                provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size, ex_keyname=instance.get('key_data'))
+            else:
+                provider_instance = self.conn(provider_name, provider_region).create_node(name=name, image=provider_image, size=size)
+            self._wait_for_state(instance, NodeState.RUNNING, provider_name=provider_name, provider_region=provider_region, dont_set_meta=True)
+
+        return provider_instance
 
     def _setup_local_instance(self, context, local_instance, create_node_provider_instance, provider_name, provider_region, network_info):
         """
