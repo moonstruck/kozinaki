@@ -168,7 +168,7 @@ class KozinakiDriver(driver.ComputeDriver):
             self._providers[provider_name]['driver'] = _driver(CONF[conf_provider]['user'], CONF[conf_provider]['key'])
 
         if os.getenv('http_proxy') is not None:
-            self._providers[provider_name]['driver'].set_http_proxy(proxy_url=os.getenv('http_proxy'))
+            self._providers[provider_name]['driver'].connection.set_http_proxy(proxy_url=os.getenv('http_proxy'))
         return self._providers[provider_name]['driver']
 
     def init_host(self, host):
