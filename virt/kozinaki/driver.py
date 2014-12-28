@@ -21,6 +21,7 @@ import sys
 import eventlet
 import time
 import pprint
+import os
 from virt.kozinaki.utils import timeout_call
 
 from nova import conductor
@@ -89,6 +90,7 @@ provider_to_local_nodestates = {
     5: power_state.SHUTDOWN         # 5: SHUTDOWN      :  4: SHUTDOWN: shutdown
 }
 
+# TODO: use self.conn only in _get_local_instance_conn
 class KozinakiDriver(driver.ComputeDriver):
 
     ## TODO: What are these capabiities and how are they set?
@@ -106,6 +108,7 @@ class KozinakiDriver(driver.ComputeDriver):
         self._conn = None
         self._prefix = CONF.kozinaki.prefix
         self._providers = {}
+        self._proxy = {}
 
         self._mounts = {}
         self._version = '0.1'
@@ -126,6 +129,7 @@ class KozinakiDriver(driver.ComputeDriver):
         """
 
         conf_provider = "kozinaki_" + provider_name
+        conf_proxy = "kozinaki_proxy"
 
         # TODO (rnl): add parameter checking
 
@@ -134,6 +138,7 @@ class KozinakiDriver(driver.ComputeDriver):
 
         if self._providers.get(provider_name) is None:
 
+            # TODO: add proxy configuration
             provider_opts = [
                 cfg.StrOpt('user',
                     help='Username to connect to the cloud provider '),
@@ -162,6 +167,8 @@ class KozinakiDriver(driver.ComputeDriver):
 
             self._providers[provider_name]['driver'] = _driver(CONF[conf_provider]['user'], CONF[conf_provider]['key'])
 
+        if os.getenv('http_proxy') is not None:
+            self._providers[provider_name]['driver'].set_http_proxy(proxy_url=os.getenv('http_proxy'))
         return self._providers[provider_name]['driver']
 
     def init_host(self, host):
@@ -273,7 +280,7 @@ class KozinakiDriver(driver.ComputeDriver):
         :param instance: local instance
         :return: libcloud provider driver corresponding to the local instance'
         """
-
+        # TODO: use proxy if configured
         provider_name = self._get_local_instance_meta(instance, 'provider_name')
         provider_region = self._get_local_instance_meta(instance, 'provider_region')
 
@@ -1105,7 +1112,7 @@ class KozinakiDriver(driver.ComputeDriver):
                            defines the image from which this instance
                            was created
         :param resize_instance: True if the instance is being resized,
-                                False otherwise
+                                False otherwisesizes
         :param block_device_info: instance volume block device info
         :param power_on: True if the instance should be powered on, False
                          otherwise
