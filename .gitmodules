@@ -1,0 +1,3 @@
+[submodule "libcloud"]
+	path = libcloud
+	url = https://github.com/apache/libcloud.git
